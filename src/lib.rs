@@ -4,24 +4,33 @@ use std::collections::BTreeMap;
 pub struct Atom(pub i32);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Literal {
-    Pos(Atom),
-    Neg(Atom),
+pub struct Literal {
+    value: i32,
 }
 
 impl Literal {
-    fn atom(&self) -> Atom {
-        match self {
-            Literal::Pos(atom) => *atom,
-            Literal::Neg(atom) => *atom,
+    pub fn pos(atom: Atom) -> Literal {
+        Literal::new(atom, true)
+    }
+
+    pub fn neg(atom: Atom) -> Literal {
+        Literal::new(atom, false)
+    }
+
+    pub fn new(atom: Atom, polarity: bool) -> Literal {
+        match atom {
+            Atom(i) => Literal {
+                value: i + i + if polarity { 1 } else { 0 },
+            },
         }
     }
 
+    fn atom(&self) -> Atom {
+        Atom(self.value >> 1)
+    }
+
     fn polarity(&self) -> bool {
-        match self {
-            Literal::Pos(_) => true,
-            Literal::Neg(_) => false,
-        }
+        self.value & 1 == 1
     }
 }
 
@@ -202,7 +211,7 @@ mod tests {
     }
 
     fn single_positive_var() -> And {
-        vec![vec![Literal::Pos(Atom(0))]]
+        vec![vec![Literal::pos(Atom(0))]]
     }
 
     #[test]
@@ -216,7 +225,7 @@ mod tests {
     }
 
     fn single_negative_var() -> And {
-        vec![vec![Literal::Neg(Atom(0))]]
+        vec![vec![Literal::neg(Atom(0))]]
     }
 
     #[test]
@@ -231,8 +240,8 @@ mod tests {
 
     fn pure_positive_polarity() -> And {
         vec![
-            vec![Literal::Pos(Atom(0))],
-            vec![Literal::Pos(Atom(0)), Literal::Pos(Atom(1))],
+            vec![Literal::pos(Atom(0))],
+            vec![Literal::pos(Atom(0)), Literal::pos(Atom(1))],
         ]
     }
 
@@ -248,8 +257,8 @@ mod tests {
 
     fn pure_negative_polarity() -> And {
         vec![
-            vec![Literal::Neg(Atom(0))],
-            vec![Literal::Neg(Atom(0)), Literal::Pos(Atom(1))],
+            vec![Literal::neg(Atom(0))],
+            vec![Literal::neg(Atom(0)), Literal::pos(Atom(1))],
         ]
     }
 
@@ -265,9 +274,9 @@ mod tests {
 
     fn backtracking_example() -> And {
         vec![
-            vec![Literal::Pos(Atom(0)), Literal::Pos(Atom(1))],
-            vec![Literal::Neg(Atom(0)), Literal::Pos(Atom(2))],
-            vec![Literal::Neg(Atom(1)), Literal::Neg(Atom(2))],
+            vec![Literal::pos(Atom(0)), Literal::pos(Atom(1))],
+            vec![Literal::neg(Atom(0)), Literal::pos(Atom(2))],
+            vec![Literal::neg(Atom(1)), Literal::neg(Atom(2))],
         ]
     }
 
