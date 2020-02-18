@@ -1,317 +1,285 @@
 use std::collections::BTreeMap;
-use std::ops::BitAnd;
-use std::ops::BitOr;
-use std::ops::Not;
 
-#[derive(Ord, PartialOrd, Clone, Debug, Eq, PartialEq)]
-pub struct Atom(pub String);
+#[derive(Ord, PartialOrd, Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Atom(pub i32);
 
-impl From<&str> for Atom {
-    fn from(str: &str) -> Atom {
-        Atom(str.into())
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Literal {
-    Atom(Atom),
+    Pos(Atom),
     Neg(Atom),
 }
 
-impl From<&str> for Literal {
-    fn from(str: &str) -> Literal {
-        Literal::Atom(str.into())
+impl Literal {
+    fn atom(&self) -> Atom {
+        match self {
+            Literal::Pos(atom) => *atom,
+            Literal::Neg(atom) => *atom,
+        }
     }
-}
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Or {
-    or: Vec<Literal>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct And {
-    and: Vec<Or>,
-}
-
-impl From<&str> for Formula {
-    fn from(str: &str) -> Formula {
-        And {
-            and: vec![Or {
-                or: vec![str.into()],
-            }],
+    fn polarity(&self) -> bool {
+        match self {
+            Literal::Pos(_) => true,
+            Literal::Neg(_) => false,
         }
     }
 }
 
-type Formula = And;
+type Or = Vec<Literal>;
+
+type And = Vec<Or>;
 
 type Interpretation = BTreeMap<Atom, bool>;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Ternary {
-    True,
-    False,
-    Unknown,
-}
+pub fn dpll(formula: And, mut interpretation: Interpretation) -> Option<Interpretation> {
+    dbg!(&formula);
+    if is_true(&formula) {
+        Some(interpretation)
+    } else if is_false(&formula) {
+        None
+    } else {
+        let mut unit_clauses = unit_clauses(&formula);
+        dbg!(&unit_clauses);
+        let formula = assign_interpretation(formula, &unit_clauses);
+        interpretation.append(&mut unit_clauses);
 
-impl From<bool> for Ternary {
-    fn from(b: bool) -> Ternary {
-        (&b).into()
-    }
-}
+        let mut pure_literals = pure_literals(&formula);
+        dbg!(&pure_literals);
+        let formula = assign_interpretation(formula, &pure_literals);
+        interpretation.append(&mut pure_literals);
 
-impl From<&bool> for Ternary {
-    fn from(b: &bool) -> Ternary {
-        match *b {
-            true => Ternary::True,
-            false => Ternary::False,
+        if is_true(&formula) {
+            return Some(interpretation);
         }
-    }
-}
 
-impl BitAnd<Ternary> for Ternary {
-    type Output = Ternary;
-    fn bitand(self, other: Ternary) -> Ternary {
-        match (self, other) {
-            (Ternary::True, Ternary::True) => Ternary::True,
-            (Ternary::False, _) => Ternary::False,
-            (_, Ternary::False) => Ternary::False,
-            _ => Ternary::Unknown,
-        }
-    }
-}
-
-impl BitOr<Ternary> for Ternary {
-    type Output = Ternary;
-    fn bitor(self, other: Ternary) -> Ternary {
-        match (self, other) {
-            (Ternary::False, Ternary::False) => Ternary::False,
-            (Ternary::True, _) => Ternary::True,
-            (_, Ternary::True) => Ternary::True,
-            _ => Ternary::Unknown,
-        }
-    }
-}
-
-impl Not for Ternary {
-    type Output = Ternary;
-    fn not(self) -> Ternary {
-        match self {
-            Ternary::False => Ternary::True,
-            Ternary::True => Ternary::False,
-            Ternary::Unknown => Ternary::Unknown,
-        }
-    }
-}
-
-impl Formula {
-    fn true_() -> Formula {
-        And { and: vec![] }
-    }
-
-    fn false_() -> Formula {
-        And {
-            and: vec![Or { or: vec![] }],
-        }
-    }
-}
-
-impl From<bool> for Formula {
-    fn from(b: bool) -> Formula {
-        match b {
-            false => Formula::false_(),
-            true => Formula::true_(),
-        }
-    }
-}
-
-impl From<&Atom> for Formula {
-    fn from(a: &Atom) -> Formula {
-        And {
-            and: vec![Or {
-                or: vec![Literal::Atom(a.clone())],
-            }],
-        }
-    }
-}
-
-impl From<Or> for Formula {
-    fn from(or: Or) -> Formula {
-        And { and: vec![or] }
-    }
-}
-
-impl Not for Or {
-    type Output = Formula;
-    fn not(self) -> Formula {
-        let ret: Formula = self.into();
-        !ret
-    }
-}
-
-impl Not for Formula {
-    type Output = Formula;
-    fn not(self) -> Formula {
-        self.and.iter().fold(Formula::false_(), |acc, x| {
-            acc | {
-                let y: Formula = x.clone().into();
-                !y
+        dbg!(&formula);
+        match get_first_atom(&formula) {
+            None => dpll(formula, interpretation),
+            Some(atom) => {
+                dbg!(&atom);
+                let true_formula = assign_atom(&formula, atom, true);
+                let interpretation_before = interpretation.clone();
+                let mut true_interpretation = interpretation;
+                true_interpretation.insert(atom, true);
+                match dpll(true_formula, true_interpretation) {
+                    Some(interpretation) => Some(interpretation),
+                    None => {
+                        dbg!(&atom);
+                        let false_formula = assign_atom(&formula, atom, false);
+                        let mut false_interpretation = interpretation_before;
+                        false_interpretation.insert(atom, false);
+                        dpll(false_formula, false_interpretation)
+                    }
+                }
             }
-        })
-    }
-}
-
-impl BitAnd<Formula> for Formula {
-    type Output = Formula;
-    fn bitand(mut self, mut other: Formula) -> Formula {
-        self.and.append(&mut other.and);
-        self
-    }
-}
-
-impl BitOr<Formula> for Formula {
-    type Output = Formula;
-    fn bitor(self, other: Formula) -> Formula {
-        match (self.and.as_slice(), other.and.as_slice()) {
-            ([], _) => return other,
-            (_, []) => return self,
-            _ => {}
         }
+    }
+}
 
-        let (x1, y1): (Formula, Formula) = match self.and.as_slice() {
-            [only] => (only.clone().into(), Formula::true_()),
-            _ => {
-                let head = self.and[0].clone();
-                let tail = self.and[1..].to_vec();
-                (head.into(), And { and: tail })
+fn is_true(formula: &And) -> bool {
+    formula.is_empty()
+}
+
+fn is_false(formula: &And) -> bool {
+    formula.iter().any(|clause| clause.is_empty())
+}
+
+fn unit_clauses(formula: &And) -> Interpretation {
+    let mut result = Interpretation::new();
+    for clause in formula {
+        if clause.len() == 1 {
+            result.insert(clause[0].atom(), clause[0].polarity());
+        }
+    }
+    result
+}
+
+fn pure_literals(formula: &And) -> Interpretation {
+    let mut result = BTreeMap::<Atom, Option<bool>>::new();
+    for clause in formula {
+        for literal in clause {
+            match result.get_mut(&literal.atom()) {
+                Some(optional_polarity) => match optional_polarity {
+                    None => {}
+                    Some(polarity) => {
+                        if *polarity != literal.polarity() {
+                            *optional_polarity = None;
+                        }
+                    }
+                },
+                None => {
+                    result.insert(literal.atom(), Some(literal.polarity()));
+                }
             }
-        };
-
-        let (x2, y2): (Formula, Formula) = match other.and.as_slice() {
-            [only] => (only.clone().into(), Formula::true_()),
-            _ => {
-                let head = other.and[0].clone();
-                let tail = other.and[1..].to_vec();
-                (head.into(), And { and: tail })
-            }
-        };
-
-        (x1.clone() | x2.clone()) & (y1.clone() | x2) & (x1 | y2.clone()) & (y1 | y2)
-    }
-}
-
-impl Atom {
-    fn is_satisfied(&self, interpretation: &Interpretation) -> Ternary {
-        interpretation
-            .get(self)
-            .map(|x| x.into())
-            .unwrap_or(Ternary::Unknown)
-    }
-
-    fn simplify(&self, interpretation: &Interpretation) -> Formula {
-        match interpretation.get(self) {
-            None => self.into(),
-            Some(b) => (*b).into(),
         }
     }
-}
-
-impl Literal {
-    fn is_satisfied(&self, interpretation: &Interpretation) -> Ternary {
-        match self {
-            Literal::Atom(atom) => atom.is_satisfied(interpretation),
-            Literal::Neg(atom) => !atom.is_satisfied(interpretation),
-        }
-    }
-
-    fn simplify(&self, interpretation: &Interpretation) -> Formula {
-        match self {
-            Literal::Atom(atom) => atom.simplify(interpretation),
-            Literal::Neg(atom) => !atom.simplify(interpretation),
-        }
-    }
-}
-
-impl Or {
-    fn is_satisfied(&self, interpretation: &Interpretation) -> Ternary {
-        self.or.iter().fold(Ternary::False, |acc, literal| {
-            acc | literal.is_satisfied(interpretation)
-        })
-    }
-
-    fn simplify(&self, interpretation: &Interpretation) -> Formula {
-        self.or.iter().fold(Formula::false_(), |acc, literal| {
-            acc | literal.simplify(interpretation)
-        })
-    }
-}
-
-impl And {
-    fn is_satisfied(&self, interpretation: &Interpretation) -> Ternary {
-        self.and.iter().fold(Ternary::True, |acc, or| {
-            acc & or.is_satisfied(interpretation)
-        })
-    }
-
-    fn simplify(&self, interpretation: &Interpretation) -> Formula {
-        self.and.iter().fold(Formula::true_(), |acc, or| {
-            acc & or.simplify(interpretation)
-        })
-    }
-}
-
-pub fn find_necessary_valuations(formula: &Formula) -> Interpretation {
-    formula
-        .and
+    result
         .iter()
-        .fold(Interpretation::new(), |mut acc, clause| {
-            if clause.or.len() == 1 {
-                match clause.or[0].clone() {
-                    Literal::Atom(atom) => acc.insert(atom, true),
-                    Literal::Neg(atom) => acc.insert(atom, false),
-                };
-            }
-            acc
-        })
+        .filter_map(|(atom, optional_polarity)| optional_polarity.map(|polarity| (*atom, polarity)))
+        .collect()
 }
 
-pub fn solve(mut formula: Formula) -> Result<Interpretation, Interpretation> {
-    let mut interpretation = Interpretation::new();
-    loop {
-        println!("solve loop, formula: {:?}", formula);
-        formula = formula.simplify(&interpretation);
-        if formula == Formula::true_() {
-            return Ok(interpretation);
+fn get_first_atom(formula: &And) -> Option<Atom> {
+    for clause in formula {
+        for literal in clause {
+            return Some(literal.atom());
         }
-        if formula == Formula::false_() {
-            return Err(interpretation);
-        }
-        let mut new_values = find_necessary_valuations(&formula);
-        interpretation.append(&mut new_values);
     }
+    None
+}
+
+fn assign_atom(formula: &And, atom: Atom, polarity: bool) -> And {
+    let mut result = And::new();
+    for clause in formula {
+        assign_clause_atom(clause, atom, polarity).map(|clause| result.push(clause));
+    }
+    result
+}
+
+fn assign_clause_atom(clause: &Or, atom: Atom, polarity: bool) -> Option<Or> {
+    let mut result = Or::new();
+    for literal in clause {
+        if literal.atom() == atom {
+            if literal.polarity() == polarity {
+                return None;
+            }
+        } else {
+            result.push(*literal);
+        }
+    }
+    Some(result)
+}
+
+fn assign_interpretation(formula: And, interpretation: &Interpretation) -> And {
+    if interpretation.is_empty() {
+        return formula;
+    }
+    let mut result = And::new();
+    for clause in formula {
+        assign_clause_interpretation(&clause, interpretation).map(|clause| result.push(clause));
+    }
+    result
+}
+
+fn assign_clause_interpretation(clause: &Or, interpretation: &Interpretation) -> Option<Or> {
+    let mut result = Or::new();
+    for literal in clause {
+        match interpretation.get(&literal.atom()) {
+            None => result.push(*literal),
+            Some(polarity) => {
+                if literal.polarity() == *polarity {
+                    return None;
+                }
+            }
+        }
+    }
+    Some(result)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // #[test]
-    // fn single_var() {
-    //     assert_eq!(
-    //         solve("A".into()),
-    //         Ok(vec![("A".into(), true)].into_iter().collect())
-    //     );
-    // }
+    fn false_() -> And {
+        vec![vec![]]
+    }
 
     #[test]
-    fn single_var_neg() {
+    fn false_is_false() {
+        assert!(dpll(false_(), Interpretation::new()).is_none())
+    }
+
+    fn true_() -> And {
+        vec![]
+    }
+
+    #[test]
+    fn true_is_true() {
         assert_eq!(
-            solve({
-                let x: Formula = "A".into();
-                !x
-            }),
-            Ok(vec![("A".into(), false)].into_iter().collect())
-        );
+            dpll(true_(), Interpretation::new()),
+            Some(Interpretation::new())
+        )
+    }
+
+    fn single_positive_var() -> And {
+        vec![vec![Literal::Pos(Atom(0))]]
+    }
+
+    #[test]
+    fn single_positive_var_solvable() {
+        let mut interpretation = Interpretation::new();
+        interpretation.insert(Atom(0), true);
+        assert_eq!(
+            dpll(single_positive_var(), Interpretation::new()),
+            Some(interpretation),
+        )
+    }
+
+    fn single_negative_var() -> And {
+        vec![vec![Literal::Neg(Atom(0))]]
+    }
+
+    #[test]
+    fn single_negative_var_solvable() {
+        let mut interpretation = Interpretation::new();
+        interpretation.insert(Atom(0), false);
+        assert_eq!(
+            dpll(single_negative_var(), Interpretation::new()),
+            Some(interpretation),
+        )
+    }
+
+    fn pure_positive_polarity() -> And {
+        vec![
+            vec![Literal::Pos(Atom(0))],
+            vec![Literal::Pos(Atom(0)), Literal::Pos(Atom(1))],
+        ]
+    }
+
+    #[test]
+    fn pure_positive_polarity_solvable() {
+        let mut interpretation = Interpretation::new();
+        interpretation.insert(Atom(0), true);
+        assert_eq!(
+            dpll(pure_positive_polarity(), Interpretation::new()),
+            Some(interpretation),
+        )
+    }
+
+    fn pure_negative_polarity() -> And {
+        vec![
+            vec![Literal::Neg(Atom(0))],
+            vec![Literal::Neg(Atom(0)), Literal::Pos(Atom(1))],
+        ]
+    }
+
+    #[test]
+    fn pure_negative_polarity_solvable() {
+        let mut interpretation = Interpretation::new();
+        interpretation.insert(Atom(0), false);
+        assert_eq!(
+            dpll(pure_negative_polarity(), Interpretation::new()),
+            Some(interpretation),
+        )
+    }
+
+    fn backtracking_example() -> And {
+        vec![
+            vec![Literal::Pos(Atom(0)), Literal::Pos(Atom(1))],
+            vec![Literal::Neg(Atom(0)), Literal::Pos(Atom(2))],
+            vec![Literal::Neg(Atom(1)), Literal::Neg(Atom(2))],
+        ]
+    }
+
+    #[test]
+    fn backtracking_example_solvable() {
+        let mut interpretation = Interpretation::new();
+        interpretation.insert(Atom(0), true);
+        interpretation.insert(Atom(1), false);
+        interpretation.insert(Atom(2), true);
+        assert_eq!(
+            dpll(backtracking_example(), Interpretation::new()),
+            Some(interpretation),
+        )
     }
 }
