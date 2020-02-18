@@ -1,4 +1,14 @@
+#[cfg(test)]
+extern crate quickcheck;
+#[cfg(test)]
+#[macro_use(quickcheck)]
+extern crate quickcheck_macros;
+#[cfg(test)]
+use quickcheck::{Arbitrary, Gen};
 use std::collections::BTreeMap;
+use std::ops::BitAnd;
+use std::ops::BitOr;
+use std::ops::Not;
 
 #[derive(Ord, PartialOrd, Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Atom(pub i32);
@@ -31,6 +41,13 @@ impl Literal {
 
     fn polarity(&self) -> bool {
         self.value & 1 == 1
+    }
+}
+
+#[cfg(test)]
+impl Arbitrary for Literal {
+    fn arbitrary<G: Gen>(g: &mut G) -> Literal {
+        Literal::new(Atom(i8::arbitrary(g).into()), bool::arbitrary(g))
     }
 }
 
@@ -185,6 +202,80 @@ fn assign_clause_interpretation(clause: &Or, interpretation: &Interpretation) ->
     Some(result)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Ternary {
+    True,
+    False,
+    Unknown,
+}
+
+impl BitAnd<Ternary> for Ternary {
+    type Output = Ternary;
+    fn bitand(self, other: Ternary) -> Ternary {
+        match (self, other) {
+            (Ternary::True, Ternary::True) => Ternary::True,
+            (Ternary::False, _) => Ternary::False,
+            (_, Ternary::False) => Ternary::False,
+            _ => Ternary::Unknown,
+        }
+    }
+}
+
+impl BitOr<Ternary> for Ternary {
+    type Output = Ternary;
+    fn bitor(self, other: Ternary) -> Ternary {
+        match (self, other) {
+            (Ternary::False, Ternary::False) => Ternary::False,
+            (Ternary::True, _) => Ternary::True,
+            (_, Ternary::True) => Ternary::True,
+            _ => Ternary::Unknown,
+        }
+    }
+}
+
+impl Not for Ternary {
+    type Output = Ternary;
+    fn not(self) -> Ternary {
+        match self {
+            Ternary::False => Ternary::True,
+            Ternary::True => Ternary::False,
+            Ternary::Unknown => Ternary::Unknown,
+        }
+    }
+}
+
+impl From<bool> for Ternary {
+    fn from(b: bool) -> Ternary {
+        if b {
+            Ternary::True
+        } else {
+            Ternary::False
+        }
+    }
+}
+impl From<&bool> for Ternary {
+    fn from(b: &bool) -> Ternary {
+        (*b).into()
+    }
+}
+
+fn interpret(formula: &And, interpretation: &Interpretation) -> Ternary {
+    formula.iter().fold(Ternary::True, |acc, clause| {
+        acc & clause.iter().fold(Ternary::False, |acc, literal| {
+            acc | {
+                let atom_value = interpretation
+                    .get(&literal.atom())
+                    .map_or(Ternary::Unknown, |b| b.into());
+                if literal.polarity() {
+                    atom_value
+                } else {
+                    !atom_value
+                }
+            }
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,5 +381,13 @@ mod tests {
             dpll(backtracking_example(), Interpretation::new()),
             Some(interpretation),
         )
+    }
+
+    #[quickcheck]
+    fn dpll_correct(formula: And) -> bool {
+        match dpll(formula.clone(), Interpretation::new()) {
+            None => true,
+            Some(interpretation) => interpret(&formula, &interpretation) == Ternary::True,
+        }
     }
 }
