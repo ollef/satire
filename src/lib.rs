@@ -279,6 +279,41 @@ fn interpret(formula: &And, interpretation: &Interpretation) -> Ternary {
     })
 }
 
+fn exponential_sat(formula: &And) -> Option<Interpretation> {
+    fn go(
+        formula: &And,
+        interpretation: Interpretation,
+        mut atoms_left: Vec<Atom>,
+    ) -> Option<Interpretation> {
+        if interpret(&formula, &interpretation) == Ternary::True {
+            return Some(interpretation);
+        }
+        match atoms_left.pop() {
+            None => None,
+            Some(atom) => {
+                let interpretation_before = interpretation.clone();
+                let mut true_interpretation = interpretation;
+                true_interpretation.insert(atom, true);
+                match go(formula, true_interpretation, atoms_left.clone()) {
+                    Some(interpretation) => Some(interpretation),
+                    None => {
+                        let mut false_interpretation = interpretation_before;
+                        false_interpretation.insert(atom, false);
+                        go(formula, false_interpretation, atoms_left)
+                    }
+                }
+            }
+        }
+    }
+    let mut atoms_left: Vec<Atom> = formula
+        .iter()
+        .flat_map(|clause| clause.iter().map(|literal| literal.atom()))
+        .collect();
+    atoms_left.sort();
+    atoms_left.dedup();
+    go(formula, Interpretation::new(), atoms_left)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,8 +405,8 @@ mod tests {
 
     #[quickcheck]
     fn dpll_correct(formula: And) -> bool {
-            None => true,
         match dpll(formula.clone()) {
+            None => exponential_sat(&formula).is_none(),
             Some(interpretation) => interpret(&formula, &interpretation) == Ternary::True,
         }
     }
