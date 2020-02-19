@@ -47,7 +47,7 @@ impl Literal {
 #[cfg(test)]
 impl Arbitrary for Literal {
     fn arbitrary<G: Gen>(g: &mut G) -> Literal {
-        Literal::new(Atom(i8::arbitrary(g).into()), bool::arbitrary(g))
+        Literal::new(Atom(i32::arbitrary(g).abs() % 8), bool::arbitrary(g))
     }
 }
 
