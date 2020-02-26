@@ -75,10 +75,6 @@ pub fn dpll(formula: And) -> Option<Interpretation> {
             let formula = assign_interpretation(formula, &pure_literals);
             interpretation.append(&mut pure_literals);
 
-            if is_true(&formula) {
-                return Some(interpretation);
-            }
-
             dbg!(&formula);
             match get_first_atom(&formula) {
                 None => go(formula, interpretation),
