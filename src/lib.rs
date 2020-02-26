@@ -9,6 +9,7 @@ mod ternary;
 #[cfg(test)]
 use quickcheck::{Arbitrary, Gen};
 use std::collections::BTreeMap;
+use std::ops::BitAnd;
 use ternary::Ternary;
 
 #[derive(Ord, PartialOrd, Clone, Copy, Debug, Eq, PartialEq)]
@@ -108,10 +109,6 @@ pub fn dpll(formula: &Formula) -> Option<Interpretation> {
 }
 
 impl Formula {
-    pub fn new() -> Formula {
-        Formula { and: And::new() }
-    }
-
     pub fn false_() -> Formula {
         Formula { and: vec![vec![]] }
     }
@@ -187,7 +184,7 @@ impl Formula {
             Some(result)
         }
 
-        let mut result = Formula::new();
+        let mut result = Formula::true_();
         for clause in &self.and {
             if let Some(clause) = assign_clause_atom(&clause, atom, polarity) {
                 result.and.push(clause);
@@ -214,7 +211,7 @@ impl Formula {
         if interpretation.is_empty() {
             return self.clone();
         }
-        let mut result = Formula::new();
+        let mut result = Formula::true_();
         for clause in &self.and {
             if let Some(clause) = assign_clause(&clause, interpretation) {
                 result.and.push(clause);
@@ -247,6 +244,14 @@ impl Arbitrary for Formula {
         Formula {
             and: And::arbitrary(g),
         }
+    }
+}
+
+impl BitAnd<Formula> for Formula {
+    type Output = Formula;
+    fn bitand(mut self, other: Formula) -> Formula {
+        self.and.extend(other.and);
+        self
     }
 }
 
@@ -383,5 +388,78 @@ mod tests {
             None => exponential_sat(&formula).is_none(),
             Some(interpretation) => formula.interpret(&interpretation) == Ternary::True,
         }
+    }
+
+    fn xor(a: Atom, b: Atom) -> Formula {
+        Formula {
+            and: vec![
+                vec![Literal::pos(a), Literal::pos(b)],
+                vec![Literal::neg(a), Literal::neg(b)],
+            ],
+        }
+    }
+
+    #[test]
+    fn xor_correct() {
+        let truth_table = vec![
+            (false, false, false),
+            (true, false, true),
+            (false, true, true),
+            (true, true, false),
+        ];
+        for (a, b, result) in truth_table {
+            assert_eq!(
+                xor(Atom(0), Atom(1))
+                    .interpret(&vec![(Atom(0), a), (Atom(1), b)].into_iter().collect(),),
+                result.into()
+            );
+        }
+    }
+
+    fn different_neighbors(atoms: &[Atom]) -> Formula {
+        let mut result = Formula::true_();
+        for (i, atom) in atoms.iter().enumerate() {
+            let j = (i + 1) % atoms.len();
+            result = result & xor(*atom, atoms[j]);
+        }
+        result
+    }
+
+    #[test]
+    fn different_neighbors_correct() {
+        for i in 0..100 {
+            let atoms = (0..i).map(|x| Atom(x)).collect::<Vec<_>>();
+            if i % 2 == 0 {
+                assert!(dpll(&different_neighbors(&atoms)).is_some());
+            } else {
+                assert_eq!(dpll(&different_neighbors(&atoms)), None);
+            }
+        }
+    }
+
+    fn one_hot(atoms: &[Atom]) -> Formula {
+        //let xor_reduce = atoms.iter().fold(Formula::false_(), |acc, x| xor(acc, x));
+    }
+}
+
+mod prop {
+    use super::Atom;
+
+    #[derive(Clone)]
+    enum Formula {
+        Atom(Atom),
+        Neg(Box<Formula>),
+        And(Box<Formula>, Box<Formula>),
+        Or(Box<Formula>, Box<Formula>),
+    }
+
+    fn xor(lhs: Formula, rhs: Formula) -> Formula {
+        Formula::And(
+            Box::new(Formula::Or(Box::new(lhs.clone()), Box::new(rhs.clone()))),
+            Box::new(Formula::Neg(Box::new(Formula::And(
+                Box::new(lhs),
+                Box::new(rhs),
+            )))),
+        )
     }
 }
