@@ -127,17 +127,15 @@ fn pure_literals(formula: &And) -> Interpretation {
     let mut result = BTreeMap::<Atom, Option<bool>>::new();
     for clause in formula {
         for literal in clause {
-            match result.get_mut(&literal.atom()) {
-                Some(optional_polarity) => match optional_polarity {
-                    None => {}
-                    Some(polarity) => {
-                        if *polarity != literal.polarity() {
-                            *optional_polarity = None;
-                        }
+            let optional_polarity = result
+                .entry(literal.atom())
+                .or_insert_with(|| Some(literal.polarity()));
+            match optional_polarity {
+                None => {}
+                Some(polarity) => {
+                    if *polarity != literal.polarity() {
+                        *optional_polarity = None;
                     }
-                },
-                None => {
-                    result.insert(literal.atom(), Some(literal.polarity()));
                 }
             }
         }
