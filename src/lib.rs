@@ -62,8 +62,8 @@ pub struct Formula {
 
 type Interpretation = BTreeMap<Atom, bool>;
 
-pub fn dpll(formula: Formula) -> Option<Interpretation> {
-    fn go(formula: Formula, mut interpretation: Interpretation) -> Option<Interpretation> {
+pub fn dpll(formula: &Formula) -> Option<Interpretation> {
+    fn go(formula: &Formula, mut interpretation: Interpretation) -> Option<Interpretation> {
         dbg!(&formula);
         if formula.is_true() {
             Some(interpretation)
@@ -82,21 +82,21 @@ pub fn dpll(formula: Formula) -> Option<Interpretation> {
 
             dbg!(&formula);
             match formula.first_atom() {
-                None => go(formula, interpretation),
+                None => go(&formula, interpretation),
                 Some(atom) => {
                     dbg!(&atom);
                     let true_formula = formula.assign_atom(atom, true);
                     let interpretation_before = interpretation.clone();
                     let mut true_interpretation = interpretation;
                     true_interpretation.insert(atom, true);
-                    match go(true_formula, true_interpretation) {
+                    match go(&true_formula, true_interpretation) {
                         Some(interpretation) => Some(interpretation),
                         None => {
                             dbg!(&atom);
                             let false_formula = formula.assign_atom(atom, false);
                             let mut false_interpretation = interpretation_before;
                             false_interpretation.insert(atom, false);
-                            go(false_formula, false_interpretation)
+                            go(&false_formula, false_interpretation)
                         }
                     }
                 }
@@ -195,7 +195,7 @@ impl Formula {
         result
     }
 
-    fn assign(self, interpretation: &Interpretation) -> Formula {
+    fn assign(&self, interpretation: &Interpretation) -> Formula {
         fn assign_clause(clause: &Or, interpretation: &Interpretation) -> Option<Or> {
             let mut result = Or::new();
             for literal in clause {
@@ -211,10 +211,10 @@ impl Formula {
             Some(result)
         }
         if interpretation.is_empty() {
-            return self;
+            return self.clone();
         }
         let mut result = Formula::new();
-        for clause in self.and {
+        for clause in &self.and {
             if let Some(clause) = assign_clause(&clause, interpretation) {
                 result.and.push(clause);
             }
@@ -348,12 +348,12 @@ mod tests {
 
     #[test]
     fn false_is_false() {
-        assert!(dpll(Formula::false_()).is_none())
+        assert!(dpll(&Formula::false_()).is_none())
     }
 
     #[test]
     fn true_is_true() {
-        assert_eq!(dpll(Formula::true_()), Some(Interpretation::new()))
+        assert_eq!(dpll(&Formula::true_()), Some(Interpretation::new()))
     }
 
     fn single_positive_var() -> Formula {
@@ -366,7 +366,7 @@ mod tests {
     fn single_positive_var_solvable() {
         let mut interpretation = Interpretation::new();
         interpretation.insert(Atom(0), true);
-        assert_eq!(dpll(single_positive_var()), Some(interpretation),)
+        assert_eq!(dpll(&single_positive_var()), Some(interpretation),)
     }
 
     fn single_negative_var() -> Formula {
@@ -379,7 +379,7 @@ mod tests {
     fn single_negative_var_solvable() {
         let mut interpretation = Interpretation::new();
         interpretation.insert(Atom(0), false);
-        assert_eq!(dpll(single_negative_var()), Some(interpretation),)
+        assert_eq!(dpll(&single_negative_var()), Some(interpretation),)
     }
 
     fn pure_positive_polarity() -> Formula {
@@ -395,7 +395,7 @@ mod tests {
     fn pure_positive_polarity_solvable() {
         let mut interpretation = Interpretation::new();
         interpretation.insert(Atom(0), true);
-        assert_eq!(dpll(pure_positive_polarity()), Some(interpretation),)
+        assert_eq!(dpll(&pure_positive_polarity()), Some(interpretation),)
     }
 
     fn pure_negative_polarity() -> Formula {
@@ -411,7 +411,7 @@ mod tests {
     fn pure_negative_polarity_solvable() {
         let mut interpretation = Interpretation::new();
         interpretation.insert(Atom(0), false);
-        assert_eq!(dpll(pure_negative_polarity()), Some(interpretation),)
+        assert_eq!(dpll(&pure_negative_polarity()), Some(interpretation),)
     }
 
     fn backtracking_example() -> Formula {
@@ -430,12 +430,12 @@ mod tests {
         interpretation.insert(Atom(0), true);
         interpretation.insert(Atom(1), false);
         interpretation.insert(Atom(2), true);
-        assert_eq!(dpll(backtracking_example()), Some(interpretation),)
+        assert_eq!(dpll(&backtracking_example()), Some(interpretation),)
     }
 
     #[quickcheck]
     fn dpll_correct(formula: Formula) -> bool {
-        match dpll(formula.clone()) {
+        match dpll(&formula) {
             None => exponential_sat(&formula).is_none(),
             Some(interpretation) => formula.interpret(&interpretation) == Ternary::True,
         }
