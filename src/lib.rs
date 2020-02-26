@@ -183,7 +183,9 @@ fn assign_interpretation(formula: And, interpretation: &Interpretation) -> And {
     }
     let mut result = And::new();
     for clause in formula {
-        assign_clause_interpretation(&clause, interpretation).map(|clause| result.push(clause));
+        if let Some(clause) = assign_clause_interpretation(&clause, interpretation) {
+            result.push(clause);
+        }
     }
     result
 }
