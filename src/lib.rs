@@ -11,11 +11,11 @@ use std::ops::BitOr;
 use std::ops::Not;
 
 #[derive(Ord, PartialOrd, Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Atom(pub i32);
+pub struct Atom(pub u32);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Literal {
-    value: i32,
+    value: u32,
 }
 
 impl Literal {
@@ -47,7 +47,7 @@ impl Literal {
 #[cfg(test)]
 impl Arbitrary for Literal {
     fn arbitrary<G: Gen>(g: &mut G) -> Literal {
-        Literal::new(Atom(i32::arbitrary(g).abs() % 8), bool::arbitrary(g))
+        Literal::new(Atom(u32::arbitrary(g) % 8), bool::arbitrary(g))
     }
 }
 
