@@ -55,32 +55,37 @@ type Or = Vec<Literal>;
 
 type And = Vec<Or>;
 
+#[derive(Clone, Debug)]
+pub struct Formula {
+    and: And,
+}
+
 type Interpretation = BTreeMap<Atom, bool>;
 
-pub fn dpll(formula: And) -> Option<Interpretation> {
-    fn go(formula: And, mut interpretation: Interpretation) -> Option<Interpretation> {
+pub fn dpll(formula: Formula) -> Option<Interpretation> {
+    fn go(formula: Formula, mut interpretation: Interpretation) -> Option<Interpretation> {
         dbg!(&formula);
-        if is_true(&formula) {
+        if formula.is_true() {
             Some(interpretation)
-        } else if is_false(&formula) {
+        } else if formula.is_false() {
             None
         } else {
-            let mut unit_clauses = unit_clauses(&formula);
+            let mut unit_clauses = formula.unit_clauses();
             dbg!(&unit_clauses);
-            let formula = assign_interpretation(formula, &unit_clauses);
+            let formula = formula.assign(&unit_clauses);
             interpretation.append(&mut unit_clauses);
 
-            let mut pure_literals = pure_literals(&formula);
+            let mut pure_literals = formula.pure_literals();
             dbg!(&pure_literals);
-            let formula = assign_interpretation(formula, &pure_literals);
+            let formula = formula.assign(&pure_literals);
             interpretation.append(&mut pure_literals);
 
             dbg!(&formula);
-            match get_first_atom(&formula) {
+            match formula.first_atom() {
                 None => go(formula, interpretation),
                 Some(atom) => {
                     dbg!(&atom);
-                    let true_formula = assign_atom(&formula, atom, true);
+                    let true_formula = formula.assign_atom(atom, true);
                     let interpretation_before = interpretation.clone();
                     let mut true_interpretation = interpretation;
                     true_interpretation.insert(atom, true);
@@ -88,7 +93,7 @@ pub fn dpll(formula: And) -> Option<Interpretation> {
                         Some(interpretation) => Some(interpretation),
                         None => {
                             dbg!(&atom);
-                            let false_formula = assign_atom(&formula, atom, false);
+                            let false_formula = formula.assign_atom(atom, false);
                             let mut false_interpretation = interpretation_before;
                             false_interpretation.insert(atom, false);
                             go(false_formula, false_interpretation)
@@ -101,108 +106,151 @@ pub fn dpll(formula: And) -> Option<Interpretation> {
     go(formula, Interpretation::new())
 }
 
-fn is_true(formula: &And) -> bool {
-    formula.is_empty()
-}
-
-fn is_false(formula: &And) -> bool {
-    formula.iter().any(|clause| clause.is_empty())
-}
-
-fn unit_clauses(formula: &And) -> Interpretation {
-    let mut result = Interpretation::new();
-    for clause in formula {
-        if clause.len() == 1 {
-            result.insert(clause[0].atom(), clause[0].polarity());
-        }
+impl Formula {
+    pub fn new() -> Formula {
+        Formula { and: And::new() }
     }
-    result
-}
 
-fn pure_literals(formula: &And) -> Interpretation {
-    let mut result = BTreeMap::<Atom, Option<bool>>::new();
-    for clause in formula {
-        for literal in clause {
-            let optional_polarity = result
-                .entry(literal.atom())
-                .or_insert_with(|| Some(literal.polarity()));
-            match optional_polarity {
-                None => {}
-                Some(polarity) => {
-                    if *polarity != literal.polarity() {
-                        *optional_polarity = None;
+    pub fn false_() -> Formula {
+        Formula { and: vec![vec![]] }
+    }
+
+    pub fn true_() -> Formula {
+        Formula { and: vec![] }
+    }
+
+    pub fn is_true(&self) -> bool {
+        self.and.is_empty()
+    }
+
+    pub fn is_false(&self) -> bool {
+        self.and.iter().any(|clause| clause.is_empty())
+    }
+
+    fn unit_clauses(&self) -> Interpretation {
+        let mut result = Interpretation::new();
+        for clause in &self.and {
+            if clause.len() == 1 {
+                result.insert(clause[0].atom(), clause[0].polarity());
+            }
+        }
+        result
+    }
+
+    fn pure_literals(&self) -> Interpretation {
+        let mut result = BTreeMap::<Atom, Option<bool>>::new();
+        for clause in &self.and {
+            for literal in clause {
+                let optional_polarity = result
+                    .entry(literal.atom())
+                    .or_insert_with(|| Some(literal.polarity()));
+                match optional_polarity {
+                    None => {}
+                    Some(polarity) => {
+                        if *polarity != literal.polarity() {
+                            *optional_polarity = None;
+                        }
                     }
                 }
             }
         }
+        result
+            .iter()
+            .filter_map(|(atom, optional_polarity)| {
+                optional_polarity.map(|polarity| (*atom, polarity))
+            })
+            .collect()
     }
-    result
-        .iter()
-        .filter_map(|(atom, optional_polarity)| optional_polarity.map(|polarity| (*atom, polarity)))
-        .collect()
-}
 
-fn get_first_atom(formula: &And) -> Option<Atom> {
-    for clause in formula {
-        for literal in clause {
-            return Some(literal.atom());
-        }
-    }
-    None
-}
-
-fn assign_atom(formula: &And, atom: Atom, polarity: bool) -> And {
-    let mut result = And::new();
-    for clause in formula {
-        assign_clause_atom(clause, atom, polarity).map(|clause| result.push(clause));
-    }
-    result
-}
-
-fn assign_clause_atom(clause: &Or, atom: Atom, polarity: bool) -> Option<Or> {
-    let mut result = Or::new();
-    for literal in clause {
-        if literal.atom() == atom {
-            if literal.polarity() == polarity {
-                return None;
+    fn first_atom(&self) -> Option<Atom> {
+        for clause in &self.and {
+            for literal in clause {
+                return Some(literal.atom());
             }
-        } else {
-            result.push(*literal);
         }
+        None
     }
-    Some(result)
-}
 
-fn assign_interpretation(formula: And, interpretation: &Interpretation) -> And {
-    if interpretation.is_empty() {
-        return formula;
-    }
-    let mut result = And::new();
-    for clause in formula {
-        if let Some(clause) = assign_clause_interpretation(&clause, interpretation) {
-            result.push(clause);
-        }
-    }
-    result
-}
-
-fn assign_clause_interpretation(clause: &Or, interpretation: &Interpretation) -> Option<Or> {
-    let mut result = Or::new();
-    for literal in clause {
-        match interpretation.get(&literal.atom()) {
-            None => result.push(*literal),
-            Some(polarity) => {
-                if literal.polarity() == *polarity {
-                    return None;
+    fn assign_atom(&self, atom: Atom, polarity: bool) -> Formula {
+        fn assign_clause_atom(clause: &Or, atom: Atom, polarity: bool) -> Option<Or> {
+            let mut result = Or::new();
+            for literal in clause {
+                if literal.atom() == atom {
+                    if literal.polarity() == polarity {
+                        return None;
+                    }
+                } else {
+                    result.push(*literal);
                 }
             }
+            Some(result)
+        }
+
+        let mut result = Formula::new();
+        for clause in &self.and {
+            if let Some(clause) = assign_clause_atom(&clause, atom, polarity) {
+                result.and.push(clause);
+            }
+        }
+        result
+    }
+
+    fn assign(self, interpretation: &Interpretation) -> Formula {
+        fn assign_clause(clause: &Or, interpretation: &Interpretation) -> Option<Or> {
+            let mut result = Or::new();
+            for literal in clause {
+                match interpretation.get(&literal.atom()) {
+                    None => result.push(*literal),
+                    Some(polarity) => {
+                        if literal.polarity() == *polarity {
+                            return None;
+                        }
+                    }
+                }
+            }
+            Some(result)
+        }
+        if interpretation.is_empty() {
+            return self;
+        }
+        let mut result = Formula::new();
+        for clause in self.and {
+            if let Some(clause) = assign_clause(&clause, interpretation) {
+                result.and.push(clause);
+            }
+        }
+        result
+    }
+
+    pub fn interpret(&self, interpretation: &Interpretation) -> Ternary {
+        self.and.iter().fold(Ternary::True, |acc, clause| {
+            acc & clause.iter().fold(Ternary::False, |acc, literal| {
+                acc | {
+                    let atom_value = interpretation
+                        .get(&literal.atom())
+                        .map_or(Ternary::Unknown, |b| b.into());
+                    if literal.polarity() {
+                        atom_value
+                    } else {
+                        !atom_value
+                    }
+                }
+            })
+        })
+    }
+}
+
+#[cfg(test)]
+impl Arbitrary for Formula {
+    fn arbitrary<G: Gen>(g: &mut G) -> Formula {
+        Formula {
+            and: And::arbitrary(g),
         }
     }
-    Some(result)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Ternary {
+pub enum Ternary {
     True,
     False,
     Unknown,
@@ -258,30 +306,13 @@ impl From<&bool> for Ternary {
     }
 }
 
-fn interpret(formula: &And, interpretation: &Interpretation) -> Ternary {
-    formula.iter().fold(Ternary::True, |acc, clause| {
-        acc & clause.iter().fold(Ternary::False, |acc, literal| {
-            acc | {
-                let atom_value = interpretation
-                    .get(&literal.atom())
-                    .map_or(Ternary::Unknown, |b| b.into());
-                if literal.polarity() {
-                    atom_value
-                } else {
-                    !atom_value
-                }
-            }
-        })
-    })
-}
-
-fn exponential_sat(formula: &And) -> Option<Interpretation> {
+pub fn exponential_sat(formula: &Formula) -> Option<Interpretation> {
     fn go(
-        formula: &And,
+        formula: &Formula,
         interpretation: Interpretation,
         mut atoms_left: Vec<Atom>,
     ) -> Option<Interpretation> {
-        if interpret(&formula, &interpretation) == Ternary::True {
+        if formula.interpret(&interpretation) == Ternary::True {
             return Some(interpretation);
         }
         match atoms_left.pop() {
@@ -302,6 +333,7 @@ fn exponential_sat(formula: &And) -> Option<Interpretation> {
         }
     }
     let mut atoms_left: Vec<Atom> = formula
+        .and
         .iter()
         .flat_map(|clause| clause.iter().map(|literal| literal.atom()))
         .collect();
@@ -314,26 +346,20 @@ fn exponential_sat(formula: &And) -> Option<Interpretation> {
 mod tests {
     use super::*;
 
-    fn false_() -> And {
-        vec![vec![]]
-    }
-
     #[test]
     fn false_is_false() {
-        assert!(dpll(false_()).is_none())
-    }
-
-    fn true_() -> And {
-        vec![]
+        assert!(dpll(Formula::false_()).is_none())
     }
 
     #[test]
     fn true_is_true() {
-        assert_eq!(dpll(true_()), Some(Interpretation::new()))
+        assert_eq!(dpll(Formula::true_()), Some(Interpretation::new()))
     }
 
-    fn single_positive_var() -> And {
-        vec![vec![Literal::pos(Atom(0))]]
+    fn single_positive_var() -> Formula {
+        Formula {
+            and: vec![vec![Literal::pos(Atom(0))]],
+        }
     }
 
     #[test]
@@ -343,8 +369,10 @@ mod tests {
         assert_eq!(dpll(single_positive_var()), Some(interpretation),)
     }
 
-    fn single_negative_var() -> And {
-        vec![vec![Literal::neg(Atom(0))]]
+    fn single_negative_var() -> Formula {
+        Formula {
+            and: vec![vec![Literal::neg(Atom(0))]],
+        }
     }
 
     #[test]
@@ -354,11 +382,13 @@ mod tests {
         assert_eq!(dpll(single_negative_var()), Some(interpretation),)
     }
 
-    fn pure_positive_polarity() -> And {
-        vec![
-            vec![Literal::pos(Atom(0))],
-            vec![Literal::pos(Atom(0)), Literal::pos(Atom(1))],
-        ]
+    fn pure_positive_polarity() -> Formula {
+        Formula {
+            and: vec![
+                vec![Literal::pos(Atom(0))],
+                vec![Literal::pos(Atom(0)), Literal::pos(Atom(1))],
+            ],
+        }
     }
 
     #[test]
@@ -368,11 +398,13 @@ mod tests {
         assert_eq!(dpll(pure_positive_polarity()), Some(interpretation),)
     }
 
-    fn pure_negative_polarity() -> And {
-        vec![
-            vec![Literal::neg(Atom(0))],
-            vec![Literal::neg(Atom(0)), Literal::pos(Atom(1))],
-        ]
+    fn pure_negative_polarity() -> Formula {
+        Formula {
+            and: vec![
+                vec![Literal::neg(Atom(0))],
+                vec![Literal::neg(Atom(0)), Literal::pos(Atom(1))],
+            ],
+        }
     }
 
     #[test]
@@ -382,12 +414,14 @@ mod tests {
         assert_eq!(dpll(pure_negative_polarity()), Some(interpretation),)
     }
 
-    fn backtracking_example() -> And {
-        vec![
-            vec![Literal::pos(Atom(0)), Literal::pos(Atom(1))],
-            vec![Literal::neg(Atom(0)), Literal::pos(Atom(2))],
-            vec![Literal::neg(Atom(1)), Literal::neg(Atom(2))],
-        ]
+    fn backtracking_example() -> Formula {
+        Formula {
+            and: vec![
+                vec![Literal::pos(Atom(0)), Literal::pos(Atom(1))],
+                vec![Literal::neg(Atom(0)), Literal::pos(Atom(2))],
+                vec![Literal::neg(Atom(1)), Literal::neg(Atom(2))],
+            ],
+        }
     }
 
     #[test]
@@ -400,10 +434,10 @@ mod tests {
     }
 
     #[quickcheck]
-    fn dpll_correct(formula: And) -> bool {
+    fn dpll_correct(formula: Formula) -> bool {
         match dpll(formula.clone()) {
             None => exponential_sat(&formula).is_none(),
-            Some(interpretation) => interpret(&formula, &interpretation) == Ternary::True,
+            Some(interpretation) => formula.interpret(&interpretation) == Ternary::True,
         }
     }
 }
